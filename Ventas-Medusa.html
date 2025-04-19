@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Generador de Comandas</title>
+  <style>
+    body { font-family: "Calibri", sans-serif; text-align: center; margin: 20px; background-color: #fff9e6; color: #003b71; }
+    .container { max-width: 600px; margin: auto; }
+    table { width: 80%; margin: 20px auto; border-collapse: collapse; }
+    th, td { border: 1px solid #000; padding: 6px; text-align: center; }
+    .campo-name, textarea { width: 80%; padding: 5px; margin: 5px 0; border: 1px solid #ccc; border-radius: 5px; }
+    .desplegable, .campo-cantidad { padding: 5px; margin-right: 5px; border-radius: 5px; border: 1px solid #ccc; }
+    .boton { padding: 8px 16px; margin: 10px; background-color: #fa7268; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    .boton:hover { background-color: #c65a52; }
+    #comanda { display: none; width: 80mm; margin: auto; text-align: left; }
+    .logo-comanda { width: 60px; display: block; margin: 10px auto; }
+    @media print {
+        body * { visibility: hidden; }
+        #comanda, #comanda * { visibility: visible; }
+        #comanda { position: absolute; top: 0; left: 0; width: 100%; margin: 0; padding: 2mm; }
+        #imprimirBtn { display: none; }
+    }
+</style>
+</head>
+<body>
+
+  <h1>Generador de Comandas</h1>
+
+  <label>Nombre del cliente:</label><br>
+  <input type="text" id="nombreCliente" placeholder="Nombre"><br>
+
+  <label>Comentarios:</label><br>
+  <textarea id="comentarios" rows="2" cols="40" placeholder="Comentarios"></textarea><br>
+
+  <label>Producto:</label><br>
+  <select id="productoSeleccionado"></select><br>
+
+  <label>Cantidad:</label><br>
+  <input type="number" id="cantidad" value="1" min="1"><br>
+  <button onclick="agregarProducto()">Agregar</button>
+
+  <h3>Productos agregados</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Producto</th><th>Cantidad</th><th>Subtotal</th><th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="listaProductos"></tbody>
+  </table>
+
+  <div class="total">Total: $<span id="total">0.00</span></div>
+  <button onclick="generarComanda()">Generar Comanda</button>
+  <button onclick="imprimirComanda()">🖨️ Imprimir</button>
+
+  <div class="comanda" id="comanda" style="display:none;">
+    <h2>Comanda</h2>
+    <p><strong>Nombre:</strong> <span id="comandaNombre"></span></p>
+    <p><strong>Comentarios:</strong> <span id="comandaComentariosTexto"></span></p>
+    <table>
+      <thead><tr><th>Producto</th><th>Cantidad</th><th>Subtotal</th></tr></thead>
+      <tbody id="detalleComanda"></tbody>
+    </table>
+    <p class="total">Total: $<span id="comandaTotal"></span></p>
+  </div>
+
+  <script>
+    const scriptUrl = 'https://script.google.com/macros/s/AKfycbwQ7y2RVQ_meWVXhchAUF0O__AY1jgYbolItHazA-lZEDzLS4IvjIMNz1rT_TnP4rgX/exec';
+    let productos = [];
+
+    async function cargarProductos() {
+      try {
+        const res = await fetch(scriptUrl);
+        const data = await res.json(); // ← USAMOS JSON DIRECTAMENTE
+        actualizarSelector(data);
+      } catch (e) {
+        console.error('Error cargando productos:', e);
+      }
+    }
+
+    function actualizarSelector(items) {
+      const sel = document.getElementById('productoSeleccionado');
+      sel.innerHTML = '';
+      const categorias = {};
+      items.forEach(i => {
+        const cat = i.categoria || 'Otros';
+        const precio = parseFloat(i.precio.toString().replace(',', '.'));
+        if (!categorias[cat]) categorias[cat] = [];
+        categorias[cat].push({ nombre: i.nombre, precio });
+      });
+      for (const cat in categorias) {
+        const group = document.createElement('optgroup');
+        group.label = cat;
+        categorias[cat].forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.nombre;
+          opt.text = `${p.nombre} - $${p.precio}`;
+          opt.dataset.precio = p.precio;
+          group.appendChild(opt);
+        });
+        sel.appendChild(group);
+      }
+    }
+
+    function agregarProducto() {
+      const sel = document.getElementById('productoSeleccionado');
+      const nombre = sel.value;
+      const precio = Number(sel.selectedOptions[0].dataset.precio);
+      const cant = parseInt(document.getElementById('cantidad').value);
+      if (!nombre || cant < 1) return;
+      const idx = productos.findIndex(p => p.nombre === nombre);
+      if (idx > -1) productos[idx].cantidad += cant;
+      else productos.push({ nombre, precio, cantidad: cant });
+      mostrarProductos();
+    }
+
+    function mostrarProductos() {
+      const cuerpo = document.getElementById('listaProductos');
+      cuerpo.innerHTML = '';
+      productos.forEach((p,i) => {
+        const sub = p.precio * p.cantidad;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${p.nombre}</td>
+          <td>${p.cantidad}</td>
+          <td>$${sub.toFixed(2)}</td>
+          <td>
+            <button onclick="cambiarCantidad(${i}, -1)">-</button>
+            <button onclick="cambiarCantidad(${i}, 1)">+</button>
+            <button onclick="eliminarProducto(${i})">🗑️</button>
+          </td>`;
+        cuerpo.appendChild(tr);
+      });
+      actualizarTotal();
+    }
+
+    function cambiarCantidad(i, delta) {
+      productos[i].cantidad += delta;
+      if (productos[i].cantidad < 1) productos.splice(i,1);
+      mostrarProductos();
+    }
+
+    function eliminarProducto(i) {
+      productos.splice(i,1);
+      mostrarProductos();
+    }
+
+    function actualizarTotal() {
+      const total = productos.reduce((sum,p) => sum + p.precio * p.cantidad, 0);
+      document.getElementById('total').innerText = total.toFixed(2);
+    }
+
+    function generarComanda() {
+      const nombre = document.getElementById('nombreCliente').value || 'No especificado';
+      const comentarios = document.getElementById('comentarios').value || 'Sin comentarios';
+      const detalle = document.getElementById('detalleComanda');
+      detalle.innerHTML = '';
+      productos.forEach(p => {
+        const sub = p.precio * p.cantidad;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${p.nombre}</td><td>${p.cantidad}</td><td>$${sub.toFixed(2)}</td>`;
+        detalle.appendChild(tr);
+      });
+      const total = productos.reduce((sum,p) => sum + p.precio * p.cantidad, 0);
+      document.getElementById('comandaNombre').innerText = nombre;
+      document.getElementById('comandaComentariosTexto').innerText = comentarios;
+      document.getElementById('comandaTotal').innerText = total.toFixed(2);
+      document.getElementById('comanda').style.display = 'block';
+
+      
+    }
+
+    function imprimirComanda() {
+  const nombre = document.getElementById('nombreCliente').value || 'No especificado';
+  const comentarios = document.getElementById('comentarios').value || 'Sin comentarios';
+  const total = productos.reduce((sum, p) => sum + p.precio * p.cantidad, 0);
+
+  const payload = { nombre, comentarios, productos, total };
+  console.log('Payload:', payload);  // Agregar este log para verificar que los datos son correctos
+
+  fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+  })
+  .then(response => response.json())
+  .then(data => {
+      console.log('Respuesta del servidor:', data);
+      window.print();
+  })
+  .catch(error => {
+      console.error('Error al enviar pedido:', error);
+      window.print();
+  });
+}
+
+
+
+
+    document.addEventListener('DOMContentLoaded', cargarProductos);
+  </script>
+
+</body>
+</html>
